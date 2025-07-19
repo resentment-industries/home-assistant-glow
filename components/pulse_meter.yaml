@@ -3,10 +3,22 @@
 # Enable Home Assistant API
 api:
   services:
-    - service: reset_total_energy
+    - service: reset_total_imported
       then:
         - button.press:
             id: button_reset_total
+    - service: reset_total_exported
+      then:
+        - button.press:
+            id: button_reset_total_exported
+
+    - service: reset_all_totals
+      then:
+        - button.press:
+            id: button_reset_total
+        - button.press:
+            id: button_reset_total_exported
+
 
 number:
   # Set the pulse rate of the LED on your meter
@@ -24,7 +36,19 @@ number:
   # Reset total energy to given value
   - platform: template
     id: select_reset_total
-    name: 'Reset Value - Total Energy kWh'
+    name: 'Reset Value - Total Energy Imported kWh'
+    entity_category: config
+    optimistic: true
+    mode: box
+    min_value: 0
+    max_value: 1000000
+    step: 1
+    initial_value: 0
+
+  # Reset total energy exported to given value
+  - platform: template
+    id: select_reset_total_exported
+    name: 'Reset Value - Total Energy Exported kWh'
     entity_category: config
     optimistic: true
     mode: box
@@ -34,14 +58,29 @@ number:
     initial_value: 0
 
 button:
-  # Reset the total energy entity
+  # Reset the total energy imported entity
   - platform: template
     id: button_reset_total
-    name: "Reset - Total Energy"
+    name: "Reset - Total Energy Imported"
+    icon: "mdi:backup-restore"
+    entity_category: config
     on_press:
       - pulse_meter.set_total_pulses:
-          id: sensor_energy_pulse_meter
+          id: sensor_energy_pulse_meter1
           value: !lambda "return id(select_reset_total).state * id(select_pulse_rate).state;"
+
+  # Reset the total energy exported entity
+  - platform: template
+    id: button_reset_total_exported
+    name: "Reset - Total Energy Exported"
+    icon: "mdi:backup-restore"
+    entity_category: config
+    on_press:
+      - pulse_meter.set_total_pulses:
+          id: sensor_energy_pulse_meter2
+          value: !lambda "return id(select_reset_total_exported).state * id(select_pulse_rate).state;"
+
+
 
 sensor:
   # Pulse meter1
@@ -54,17 +93,23 @@ sensor:
     icon: mdi:flash-outline
     accuracy_decimals: 0
     pin: ${pulse_pin1}
-    on_raw_value:
-      then:
-        - light.turn_on:
-            id: led_red
-        - delay: 0.2s
-        - light.turn_off:
-            id: led_red
+    # LED flash commented out as not in use
+    # on_raw_value:
+    #   then:
+    #     - light.turn_on:
+    #         id: led_red
+    #     - delay: 0.2s
+    #     - light.turn_off:
+    #         id: led_red
     filters:
       # multiply value = (60 / imp value) * 1000
       # - multiply: 60
-      - lambda: return x * ((60.0 / id(select_pulse_rate).state) * 1000.0);
+      - lambda: |
+          float pulse_rate = id(select_pulse_rate).state;
+          if (pulse_rate <= 0 || isnan(x) || x < 0) {
+            return 0.0;
+          }
+          return x * ((60.0 / pulse_rate) * 1000.0);
 
     total:
       id: sensor_total_energy1
@@ -89,21 +134,27 @@ sensor:
     icon: mdi:flash-outline
     accuracy_decimals: 0
     pin: ${pulse_pin2}
-    on_raw_value:
-      then:
-        - light.turn_on:
-            id: led_red
-        - delay: 0.2s
-        - light.turn_off:
-            id: led_red
+    # LED flash commented out as not in use
+    # on_raw_value:
+    #   then:
+    #     - light.turn_on:
+    #         id: led_red
+    #     - delay: 0.2s
+    #     - light.turn_off:
+    #         id: led_red
     filters:
       # multiply value = (60 / imp value) * 1000
       # - multiply: 60
-      - lambda: return x * ((60.0 / id(select_pulse_rate).state) * 1000.0);
+      - lambda: |
+          float pulse_rate = id(select_pulse_rate).state;
+          if (pulse_rate <= 0 || isnan(x) || x < 0) {
+            return 0.0;
+          }
+          return x * ((60.0 / pulse_rate) * 1000.0);
 
     total:
       id: sensor_total_energy2
-      name: '${friendly_name} - Total Energy'
+      name: '${friendly_name} - Total Exported'
       unit_of_measurement: kWh
       icon: mdi:circle-slice-3
       state_class: total_increasing
@@ -114,13 +165,27 @@ sensor:
         # - multiply: 0.001
         - lambda: return x * (1.0 / id(select_pulse_rate).state);
         
-  # Total day usage
+  # Daily energy consumption (imported) - fresh sensor with new ID
   - platform: total_daily_energy
-    id: sensor_total_daily_energy
-    name: '${friendly_name} - Daily Energy'
-    power_id: sensor_energy_pulse_meter
+    id: sensor_daily_consumption_imported
+    name: '${friendly_name} - Daily Consumption Imported'
+    power_id: sensor_energy_pulse_meter1
     unit_of_measurement: kWh
-    icon: mdi:circle-slice-3
+    icon: mdi:home-lightning-bolt
+    state_class: total_increasing
+    device_class: energy
+    accuracy_decimals: 3
+    filters:
+      # Multiplication factor from W to kW is 0.001
+      - multiply: 0.001
+
+  # Daily energy production (exported) - fresh sensor with new ID
+  - platform: total_daily_energy
+    id: sensor_daily_production_exported
+    name: '${friendly_name} - Daily Production Exported'
+    power_id: sensor_energy_pulse_meter2
+    unit_of_measurement: kWh
+    icon: mdi:solar-power
     state_class: total_increasing
     device_class: energy
     accuracy_decimals: 3
